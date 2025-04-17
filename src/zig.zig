@@ -2,13 +2,15 @@ const std = @import("std");
 
 pub const os = struct {
     pub const linux = struct {
+        const IOCTL = std.os.linux.IOCTL;
+
         /// Result struct from perf_event_open() when ALL read flags are set
         /// If PERF_FORMAT_GROUP was specified else see `perf_read_format`
         pub const perf_read_group = extern struct {
             len: u64,
             time_enabled: u64,
             time_running: u64,
-            // ptr: [*]const perf_read_entry,
+            // ptr: [*]perf_read_entry,
         };
 
         /// Result value from perf_event_open()
@@ -18,7 +20,7 @@ pub const os = struct {
             lost: u64,
         };
 
-        /// Result struct from perf_event_open() with ALL except GROUP read flags
+        /// Result struct from perf_event_open() without group
         /// If PERF_FORMAT_GROUP was not specified else see `perf_read_group`
         pub const perf_read_format = extern struct {
             value: u64,
@@ -150,26 +152,26 @@ pub const os = struct {
                 pub const FD_CLOEXEC = 1 << 3;
             };
 
-            pub const EVENT_IOC = struct {
-                pub const ENABLE = 0x00002400; // _, 0, '$', 0
-                pub const DISABLE = 0x00002401; // _, 0, '$', 1
-                pub const REFRESH = 0x00002402; // _, 0, '$', 2
-                pub const RESET = 0x00002403; // _, 0, '$', 3
+            pub const EVENT_IOC = enum(u32) {
+                ENABLE = IOCTL.IO('$', 0), // 0x00002400; // _, 0, '$', 0
+                DISABLE = IOCTL.IO('$', 1), // 0x00002401; // _, 0, '$', 1
+                REFRESH = IOCTL.IO('$', 2), // 0x00002402; // _, 0, '$', 2
+                RESET = IOCTL.IO('$', 3), // 0x00002403; // _, 0, '$', 3
                 /// Read 8 (u64)
-                pub const PERIOD = 0x40_08_24_04; // R, 8, '$', 4
-                pub const SET_OUTPUT = 0x00_00_24_05; // _, 0, '$', 5
+                PERIOD = IOCTL.IOR('$', 4, u64), // 0x40_08_24_04; // R, 8, '$', 4
+                SET_OUTPUT = IOCTL.IO('$', 5), // 0x00_00_24_05; // _, 0, '$', 5
                 /// Write 8 (*u8)
-                pub const SET_FILTER = 0x40_08_24_06; // W, 8, '$', 6
+                SET_FILTER = IOCTL.IOW('$', 6, *u8), // 0x40_08_24_06; // W, 8, '$', 6
                 /// Read 8 (*u64)
-                pub const ID = 0x20_08_24_07; // R, 8, '$', 7
+                ID = IOCTL.IOR('$', 7, *u64), // 0x20_08_24_07; // R, 8, '$', 7
                 /// Write 4 (u32)
-                pub const SET_BPF = 0x40_04_24_08; // W, 4, '$', 8
+                SET_BPF = IOCTL.IOW('$', 8, u32), // 0x40_04_24_08; // W, 4, '$', 8
                 /// Write 4 (u32)
-                pub const PAUSE_OUTPUT = 0x40_04_24_09; // W, 4, '$', 9
+                PAUSE_OUTPUT = IOCTL.IOW('$', 9, u32), // 0x40_04_24_09; // W, 4, '$', 9
                 /// Read+Write 8 (*perf_event_query_bpf)
-                pub const QUERY_BPF = 0xC0_08_24_0A; // RW, 8, '$', 10
+                QUERY_BPF = IOCTL.IOWR('$', 10, *anyopaque), // 0xC0_08_24_0A; // RW, 8, '$', 10
                 /// Write 8 (*perf_event_attr)
-                pub const MODIFY_ATTRIBUTES = 0x40_08_24_0B; // W, 8, '$', 11
+                MODIFY_ATTRIBUTES = IOCTL.IOW('$', 11, *anyopaque), // 0x40_08_24_0B; // W, 8, '$', 11
             };
 
             pub const IOC_FLAG_GROUP = 1;
