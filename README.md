@@ -8,5 +8,6 @@ Experimental interface for Linux kernel performance and diagnostic information
 
 Requires privileges
 ```
-setcap "cap_perfmon,cap_sys_ptrace,cap_sys_admin=ep" zig-out/bin/example
+chmod o-rwx zig-out/bin/example
+setcap "cap_perfmon,cap_ipc_lock,cap_sys_ptrace,cap_syslog=ep" zig-out/bin/example
 ```
