@@ -1,0 +1,3 @@
+[submodule "mod/linux"]
+	path = mod/linux
+	url = https://github.com/gniknayr/zig-mod-linux.git
