@@ -2,7 +2,7 @@ const builtin = @import("builtin");
 const endianess = builtin.cpu.arch.endian();
 
 const std = @import("std");
-const linux = std.os.linux;
+const linux = @import("linux");
 
 const zig = @import("zig.zig");
 const perf_read_group = zig.os.linux.perf_read_group;
@@ -23,15 +23,6 @@ pub fn main() !void {
     // perf_event.flags.sample_id_all = true;
     const fd = try perf_event_lead(&perf_event);
     defer close(fd);
-
-    // This supposedly provides an 8byte ID to correlate which event is which, throws NOTTY as is
-    // EVENT_IOC_ID is the one OP missing from zig std, feel like I'm missing some key detail
-    // var base_id: usize = 0;
-    // {
-    //     const err = linux.ioctl(fd, zig.os.linux.PERF.EVENT_IOC.ID, @intFromPtr(&base_id));
-    //     try maybeError(err, "ioctl .ID");
-    // }
-    // std.log.debug("base id: {d}", .{id});
 
     // CONTEXT_SWITCHES
 
@@ -88,6 +79,15 @@ pub fn main() !void {
         std.log.debug("{any}", .{entry});
     }
 
+    // This supposedly provides an 8byte ID to correlate which event is which, throws NOTTY as is
+    // EVENT_IOC_ID is the one OP missing from zig std, feel like I'm missing some key detail
+    var base_id: usize = 0;
+    {
+        const err = linux.ioctl(fd, .ID, @intFromPtr(&base_id));
+        try maybeError(err, "ioctl .ID");
+    }
+    std.log.debug("base id: {d}", .{base_id});
+
     // const read_format: *zig.os.linux.perf_read_group = @alignCast(@ptrCast(&buf));
 
     // var offset: usize = 0;
@@ -103,114 +103,16 @@ pub fn main() !void {
     // }
 }
 
-pub const PerfEventError = error{
-
-    // Extra bits in config1
-    // Cache generalized event parameter is out of range
-    // Generalized event setting in kernel is -1
-    // Scheduling the events failed (conflict)
-    // Too many events
-    // Invalid flags setting
-    // Invalid parameters in attr
-    // frequency setting higher than value set by sysctl
-    // specified CPU does not exist
-    // non-group leader marked as exclusive or pinned
-    Invalid,
-    // Expecting: cap_perfmon; Possibly: cap_ipc_lock, cap_sys_ptrace, cap_syslog
-    // Original note: Requires root permissions (CAP_SYS_?) or paranoid CPU setting
-    Permissions,
-    HardwareNotSupported,
-    // PERF_SOUREC_STACK_TRACE not supported
-    StackTraceNotSupported,
-    // PMU interrupt not available and requested sampling
-    // Request branch tracing and not available
-    // Request low-skid events and not available
-    OperationNotSupported,
-    // Generalized event set to 0 in kernel
-    // Invalid attr.type setting
-    NullEvent,
-    // attr structure bigger than expected and non-zero
-    StructTooBig,
-    // Kernel failed while allocating memory
-    OutOfMemory,
-    Busy,
-    // .EAGAIN
-    Unexpected,
-};
-
-pub fn perf_event_open(perf: *perf_event_attr, pid: linux.pid_t, cpu: i32, groupfd: linux.fd_t, flags: usize) PerfEventError!linux.fd_t {
-    const result = linux.perf_event_open(@ptrCast(perf), pid, cpu, groupfd, flags);
-    if (builtin.mode == .Debug) {
-        errdefer {
-            switch (perf.type) {
-                .HARDWARE => {
-                    const cfg: zig.os.linux.PERF.COUNT.HW = @enumFromInt(perf.config);
-                    std.log.err("{s} {s}", .{ @tagName(perf.type), @tagName(cfg) });
-                },
-                .SOFTWARE => {
-                    const cfg: zig.os.linux.PERF.COUNT.SW = @enumFromInt(perf.config);
-                    std.log.err("{s} {s}", .{ @tagName(perf.type), @tagName(cfg) });
-                },
-                else => {
-                    std.log.err("{s} {d}", .{ @tagName(perf.type), perf.config });
-                },
-            }
-        }
-    }
-    return switch (linux.E.init(result)) {
-        .SUCCESS => @intCast(@as(isize, @bitCast(result))),
-        .INVAL => error.Invalid,
-        .ACCES => error.Permissions,
-        .NOENT => error.NullEvent,
-        .NODEV => error.HardwareNotSupported,
-        .NOSYS => error.StackTraceNotSupported,
-        .OPNOTSUPP => error.OperationNotSupported,
-        .@"2BIG" => error.StructTooBig,
-        .NOMEM => error.OutOfMemory,
-        .BUSY => error.Busy,
-        else => |err| unexpected(err, "perf_event_open"),
-    };
-}
-
-pub fn perf_event_group(perf: *perf_event_attr, groupfd: linux.fd_t) PerfEventError!linux.fd_t {
+pub fn perf_event_group(perf: *perf_event_attr, groupfd: linux.fd_t) linux.PerfEventOpenError!linux.fd_t {
     // perf.flags.exclude_kernel = true;
     // perf.flags.exclude_hv = true;
     // perf.flags.exclude_idle = true;
     perf.read_format = zig.os.linux.PERF.FORMAT.ALL;
-    return perf_event_open(perf, -1, 0, groupfd, linux.PERF.FLAG.FD_CLOEXEC);
+    return linux.perf_event_open(perf, -1, 0, groupfd, linux.PERF.FLAG.FD_CLOEXEC);
 }
 
-pub fn perf_event_lead(perf: *perf_event_attr) PerfEventError!linux.fd_t {
+pub fn perf_event_lead(perf: *perf_event_attr) linux.PerfEventOpenError!linux.fd_t {
     // group leader should start disabled so we can add multiple events
     perf.flags.disabled = true;
     return perf_event_group(perf, -1);
-}
-
-pub fn perf_event_ctl(fd: linux.fd_t, ioc: zig.os.linux.PERF.IOC_REQUEST, flags: usize) UnexpectedError!void {
-    const result = linux.ioctl(fd, ioc, flags);
-    return switch (linux.E.init(result)) {
-        .SUCCESS => {},
-        // TODO
-        else => |err| unexpected(err, "perf_event_ctl"),
-    };
-}
-
-pub fn close(fd: linux.fd_t) void {
-    const result = linux.close(fd);
-    maybeError(result, "close") catch {};
-}
-
-pub fn maybeError(code: usize, comptime debug: []const u8) UnexpectedError!void {
-    return switch (linux.E.init(code)) {
-        .SUCCESS => {},
-        else => |err| unexpected(err, debug),
-    };
-}
-
-const UnexpectedError = error{Unexpected};
-pub fn unexpected(err: linux.E, comptime debug: []const u8) UnexpectedError {
-    if (builtin.mode == .Debug) {
-        std.log.err("{s}: {s}", .{ debug, @tagName(err) });
-    }
-    return error.Unexpected;
 }
